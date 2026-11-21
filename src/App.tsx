@@ -6,7 +6,17 @@ type Player = {
   name: string;
 };
 
+type VoteResult = {
+  player_id: string;
+  name: string;
+  votes: number;
+};
+
 function App() {
+  // -------------------------
+  // PLAYER AND ROOM STATE
+  // -------------------------
+
   const [roomCode, setRoomCode] = useState("");
   const [currentRoom, setCurrentRoom] = useState("");
   const [playerName, setPlayerName] = useState("");
@@ -18,10 +28,15 @@ function App() {
   const [isHost, setIsHost] = useState(false);
   const [error, setError] = useState("");
 
+  // -------------------------
+  // GAME STATE
+  // -------------------------
+
   const [gameState, setGameState] = useState("lobby");
   const [question, setQuestion] = useState("");
   const [hasVoted, setHasVoted] = useState(false);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
+  const [results, setResults] = useState<VoteResult[]>([]);
 
   // -------------------------
   // WEBSOCKET CONNECTION
@@ -37,14 +52,28 @@ function App() {
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
+      // Update the player list for everyone
       if (data.type === "players_updated") {
         setPlayers(data.players);
         setPlayerDetails(data.player_details);
       }
 
+      // Update the game state and question
       if (data.type === "game_state_updated") {
         setGameState(data.game_state);
         setQuestion(data.question);
+
+        // Reset voting state for a new question
+        if (data.game_state === "playing") {
+          setHasVoted(false);
+          setResults([]);
+        }
+      }
+
+      // Show results when everyone has voted
+      if (data.type === "results_updated") {
+        setResults(data.results);
+        setGameState("results");
       }
     };
 
@@ -87,10 +116,12 @@ function App() {
       }
 
       setPlayers(data.players);
+      setPlayerDetails([]);
       setPlayerId(data.player_id);
       setIsHost(true);
       setGameState("lobby");
       setHasVoted(false);
+      setResults([]);
       setCurrentRoom(data.room_code);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -135,10 +166,12 @@ function App() {
       }
 
       setPlayers(data.players);
+      setPlayerDetails([]);
       setPlayerId(data.player_id);
       setIsHost(false);
       setGameState("lobby");
       setHasVoted(false);
+      setResults([]);
       setCurrentRoom(data.room_code);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -181,7 +214,7 @@ function App() {
   // -------------------------
 
   async function submitVote(votedFor: string) {
-    if (hasVoted || isSubmittingVote) return;
+    if (hasVoted || isSubmittingVote || gameState !== "playing") return;
 
     try {
       setError("");
@@ -230,6 +263,7 @@ function App() {
     setQuestion("");
     setHasVoted(false);
     setIsSubmittingVote(false);
+    setResults([]);
   }
 
   // -------------------------
@@ -262,12 +296,45 @@ function App() {
           ) : (
             <>
               <h3>🎮 Who's Most Likely To?</h3>
+
               <p>Round 1</p>
+
               <h2>{question}</h2>
 
-              {hasVoted ? (
+              {/* RESULTS SCREEN */}
+
+              {gameState === "results" ? (
+                <>
+                  <h3>🏆 Results!</h3>
+
+                  {results.length > 0 && results[0].votes > 0 && (
+                    <h2>
+                      👑{" "}
+                      {results
+                        .filter((result) => result.votes === results[0].votes)
+                        .map((result) => result.name)
+                        .join(" & ")}
+                    </h2>
+                  )}
+
+                  <p>Here's how everyone voted:</p>
+
+                  {results.map((result) => (
+                    <div key={result.player_id}>
+                      <p>
+                        {result.name}: {result.votes}{" "}
+                        {result.votes === 1 ? "vote" : "votes"}
+                      </p>
+                    </div>
+                  ))}
+
+                  {isHost && <p>Next round coming soon! 🎮</p>}
+                </>
+              ) : hasVoted ? (
+                // WAITING FOR OTHER PLAYERS
                 <p>✅ Vote submitted! Waiting for everyone else...</p>
               ) : (
+                // VOTING SCREEN
                 <>
                   <p>Who gets your vote? 👀</p>
 
@@ -290,6 +357,7 @@ function App() {
       ) : (
         <>
           <h1>🎉 Party Mode</h1>
+
           <p>The ultimate game night starts here!</p>
 
           <input

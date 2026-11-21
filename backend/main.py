@@ -180,6 +180,41 @@ async def broadcast_game_state(room_code: str):
             pass
 
 
+async def broadcast_results(room_code: str):
+    room = rooms.get(room_code)
+
+    if not room:
+        return
+
+    vote_counts = {player_id: 0 for player_id in room["players"]}
+
+    for voted_for in room["votes"].values():
+        if voted_for in vote_counts:
+            vote_counts[voted_for] += 1
+
+    results = [
+        {
+            "player_id": player_id,
+            "name": name,
+            "votes": vote_counts[player_id],
+        }
+        for player_id, name in room["players"].items()
+    ]
+
+    results.sort(key=lambda player: player["votes"], reverse=True)
+
+    message = {
+        "type": "results_updated",
+        "results": results,
+    }
+
+    for connection in list(room["connections"].values()):
+        try:
+            await connection.send_json(message)
+        except Exception:
+            pass
+
+
 # -------------------------
 # WEBSOCKET CONNECTION
 # -------------------------
@@ -300,5 +335,9 @@ async def submit_vote(room_code: str, request: VoteRequest):
         )
 
     room["votes"][request.player_id] = request.voted_for
+
+    if len(room["votes"]) == len(room["players"]):
+        room["game_state"] = "results"
+        await broadcast_results(room_code)
 
     return {"message": "Vote submitted successfully"}
