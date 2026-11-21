@@ -18,6 +18,16 @@ app.add_middleware(
 rooms = {}
 
 
+QUESTIONS = [
+    "Who's most likely to accidentally text their ex at 3 AM?",
+    "Who's most likely to become famous?",
+    "Who's most likely to survive a zombie apocalypse?",
+    "Who's most likely to get married in Vegas?",
+    "Who's most likely to disappear on a night out?"
+]
+
+
+
 class CreateRoomRequest(BaseModel):
     player_name: str
 
@@ -54,10 +64,15 @@ def create_room(request: CreateRoomRequest):
 
     player_id = secrets.token_urlsafe(16)
 
+    
     rooms[code] = {
         "players": {player_id: name},
-        "connections": {}
-    }
+        "connections": {},
+        "host_id": player_id,
+        "game_state": "lobby",
+        "question_index": 0
+}
+
 
     return {
         "room_code": code,
@@ -148,3 +163,59 @@ async def websocket_endpoint(
 
             if not room["players"]:
                 rooms.pop(room_code, None)
+
+
+class StartGameRequest(BaseModel):
+    player_id: str
+
+
+@app.post("/rooms/{room_code}/start")
+async def start_game(room_code: str, request: StartGameRequest):
+    room = rooms.get(room_code)
+
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    if request.player_id != room["host_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the host can start the game"
+        )
+
+    if room["game_state"] != "lobby":
+        raise HTTPException(
+            status_code=400,
+            detail="Game has already started"
+        )
+
+    if len(room["players"]) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least two players are required"
+        )
+
+    room["game_state"] = "playing"
+    room["question_index"] = 0
+
+    await broadcast_game_state(room_code)
+
+    return {"message": "Game started!"}
+
+
+async def broadcast_game_state(room_code: str):
+    room = rooms.get(room_code)
+
+    if not room:
+        return
+
+    message = {
+        "type": "game_state_updated",
+        "game_state": room["game_state"],
+        "question": QUESTIONS[room["question_index"]]
+    }
+
+    for connection in list(room["connections"].values()):
+        try:
+            await connection.send_json(message)
+        except Exception:
+            pass

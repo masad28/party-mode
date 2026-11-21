@@ -10,6 +10,8 @@ function App() {
   const [players, setPlayers] = useState<string[]>([])
   const [isHost, setIsHost] = useState(false)
   const [error, setError] = useState('')
+  const [gameState, setGameState] = useState('lobby')
+  const [question, setQuestion] = useState('')
 
   // Connect to the room's WebSocket
   useEffect(() => {
@@ -19,13 +21,20 @@ function App() {
       `ws://localhost:8000/ws/${currentRoom}/${playerId}`
     )
 
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data)
+    
+socket.onmessage = (event) => {
+  const data = JSON.parse(event.data)
 
-      if (data.type === 'players_updated') {
-        setPlayers(data.players)
-      }
-    }
+  if (data.type === 'players_updated') {
+    setPlayers(data.players)
+  }
+
+  if (data.type === 'game_state_updated') {
+    setGameState(data.game_state)
+    setQuestion(data.question)
+  }
+}
+
 
     socket.onerror = () => {
       setError('Connection error. Please try again.')
@@ -110,12 +119,46 @@ function App() {
     }
   }
 
+
+async function startGame() {
+  try {
+    setError('')
+
+    const response = await fetch(
+      `http://localhost:8000/rooms/${currentRoom}/start`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          player_id: playerId
+        })
+      }
+    )
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.detail || 'Failed to start game')
+    }
+
+  } catch (err) {
+    setError(
+      err instanceof Error ? err.message : 'Something went wrong'
+    )
+  }
+}
+
+
   function leaveRoom() {
     setCurrentRoom('')
     setPlayerId('')
     setPlayers([])
     setIsHost(false)
     setError('')
+    setGameState('lobby')
+    setQuestion('')
   }
 
   return (
@@ -127,15 +170,37 @@ function App() {
           <p>Room code:</p>
           <h2>{currentRoom}</h2>
 
-          <h3>👥 Players ({players.length})</h3>
+          
+{gameState === 'lobby' ? (
+  <>
+    <h3>👥 Players ({players.length})</h3>
 
-          {players.map((player, index) => (
-            <p key={index}>🎮 {player}</p>
-          ))}
+    {players.map((player, index) => (
+      <p key={index}>🎮 {player}</p>
+    ))}
 
-          <button onClick={leaveRoom}>
-            Leave Room
-          </button>
+    {isHost && (
+      <button
+        onClick={startGame}
+        disabled={players.length < 2}
+      >
+        Start Game 🎮
+      </button>
+    )}
+  </>
+) : (
+  <>
+    <h3>🎮 Who's Most Likely To?</h3>
+    <p>Round 1</p>
+    <h2>{question}</h2>
+    <p>Voting coming soon!</p>
+  </>
+)}
+
+<button onClick={leaveRoom}>
+  Leave Room
+</button>
+
         </>
       ) : (
         <>
