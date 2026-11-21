@@ -1,0 +1,20 @@
+
+# Node.js dependencies
+node_modules/
+dist/
+
+# Python virtual environments
+.venv/
+__pycache__/
+*.pyc
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
+
+# Editor settings
+.vscode/
