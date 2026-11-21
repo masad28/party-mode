@@ -1,206 +1,291 @@
+import { useEffect, useState } from "react";
+import "./App.css";
 
-import { useEffect, useState } from 'react'
-import './App.css'
+type Player = {
+  id: string;
+  name: string;
+};
 
 function App() {
-  const [roomCode, setRoomCode] = useState('')
-  const [currentRoom, setCurrentRoom] = useState('')
-  const [playerName, setPlayerName] = useState('')
-  const [playerId, setPlayerId] = useState('')
-  const [players, setPlayers] = useState<string[]>([])
-  const [isHost, setIsHost] = useState(false)
-  const [error, setError] = useState('')
-  const [gameState, setGameState] = useState('lobby')
-  const [question, setQuestion] = useState('')
+  const [roomCode, setRoomCode] = useState("");
+  const [currentRoom, setCurrentRoom] = useState("");
+  const [playerName, setPlayerName] = useState("");
+  const [playerId, setPlayerId] = useState("");
 
-  // Connect to the room's WebSocket
+  const [players, setPlayers] = useState<string[]>([]);
+  const [playerDetails, setPlayerDetails] = useState<Player[]>([]);
+
+  const [isHost, setIsHost] = useState(false);
+  const [error, setError] = useState("");
+
+  const [gameState, setGameState] = useState("lobby");
+  const [question, setQuestion] = useState("");
+  const [hasVoted, setHasVoted] = useState(false);
+  const [isSubmittingVote, setIsSubmittingVote] = useState(false);
+
+  // -------------------------
+  // WEBSOCKET CONNECTION
+  // -------------------------
+
   useEffect(() => {
-    if (!currentRoom || !playerId) return
+    if (!currentRoom || !playerId) return;
 
     const socket = new WebSocket(
-      `ws://localhost:8000/ws/${currentRoom}/${playerId}`
-    )
+      `ws://localhost:8000/ws/${currentRoom}/${playerId}`,
+    );
 
-    
-socket.onmessage = (event) => {
-  const data = JSON.parse(event.data)
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
 
-  if (data.type === 'players_updated') {
-    setPlayers(data.players)
-  }
+      if (data.type === "players_updated") {
+        setPlayers(data.players);
+        setPlayerDetails(data.player_details);
+      }
 
-  if (data.type === 'game_state_updated') {
-    setGameState(data.game_state)
-    setQuestion(data.question)
-  }
-}
-
+      if (data.type === "game_state_updated") {
+        setGameState(data.game_state);
+        setQuestion(data.question);
+      }
+    };
 
     socket.onerror = () => {
-      setError('Connection error. Please try again.')
-    }
+      setError("Connection error. Please try again.");
+    };
 
     return () => {
-      socket.close()
-    }
-  }, [currentRoom, playerId])
+      socket.close();
+    };
+  }, [currentRoom, playerId]);
+
+  // -------------------------
+  // CREATE ROOM
+  // -------------------------
 
   async function createRoom() {
     if (!playerName.trim()) {
-      setError('Please enter your name!')
-      return
+      setError("Please enter your name!");
+      return;
     }
 
     try {
-      setError('')
+      setError("");
 
-      const response = await fetch('http://localhost:8000/rooms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("http://localhost:8000/rooms", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          player_name: playerName.trim()
-        })
-      })
+          player_name: playerName.trim(),
+        }),
+      });
 
-      const data = await response.json()
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || 'Failed to create room')
+        throw new Error(data.detail || "Failed to create room");
       }
 
-      setPlayers(data.players)
-      setPlayerId(data.player_id)
-      setIsHost(true)
-      setCurrentRoom(data.room_code)
-
+      setPlayers(data.players);
+      setPlayerId(data.player_id);
+      setIsHost(true);
+      setGameState("lobby");
+      setHasVoted(false);
+      setCurrentRoom(data.room_code);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setError(err instanceof Error ? err.message : "Something went wrong");
     }
   }
 
+  // -------------------------
+  // JOIN ROOM
+  // -------------------------
+
   async function joinRoom() {
     if (!playerName.trim()) {
-      setError('Please enter your name!')
-      return
+      setError("Please enter your name!");
+      return;
     }
 
     if (!/^\d{6}$/.test(roomCode)) {
-      setError('Please enter a valid six-digit room code!')
-      return
+      setError("Please enter a valid six-digit room code!");
+      return;
     }
 
     try {
-      setError('')
+      setError("");
 
       const response = await fetch(
         `http://localhost:8000/rooms/${roomCode}/join`,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
-            player_name: playerName.trim()
-          })
-        }
-      )
+            player_name: playerName.trim(),
+          }),
+        },
+      );
 
-      const data = await response.json()
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || 'Failed to join room')
+        throw new Error(data.detail || "Failed to join room");
       }
 
-      setPlayers(data.players)
-      setPlayerId(data.player_id)
-      setIsHost(false)
-      setCurrentRoom(data.room_code)
-
+      setPlayers(data.players);
+      setPlayerId(data.player_id);
+      setIsHost(false);
+      setGameState("lobby");
+      setHasVoted(false);
+      setCurrentRoom(data.room_code);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setError(err instanceof Error ? err.message : "Something went wrong");
     }
   }
 
+  // -------------------------
+  // START GAME
+  // -------------------------
 
-async function startGame() {
-  try {
-    setError('')
+  async function startGame() {
+    try {
+      setError("");
 
-    const response = await fetch(
-      `http://localhost:8000/rooms/${currentRoom}/start`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
+      const response = await fetch(
+        `http://localhost:8000/rooms/${currentRoom}/start`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            player_id: playerId,
+          }),
         },
-        body: JSON.stringify({
-          player_id: playerId
-        })
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to start game");
       }
-    )
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.detail || 'Failed to start game')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     }
-
-  } catch (err) {
-    setError(
-      err instanceof Error ? err.message : 'Something went wrong'
-    )
   }
-}
 
+  // -------------------------
+  // SUBMIT VOTE
+  // -------------------------
+
+  async function submitVote(votedFor: string) {
+    if (hasVoted || isSubmittingVote) return;
+
+    try {
+      setError("");
+      setIsSubmittingVote(true);
+
+      const response = await fetch(
+        `http://localhost:8000/rooms/${currentRoom}/vote`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            player_id: playerId,
+            voted_for: votedFor,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to submit vote");
+      }
+
+      setHasVoted(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsSubmittingVote(false);
+    }
+  }
+
+  // -------------------------
+  // LEAVE ROOM
+  // -------------------------
 
   function leaveRoom() {
-    setCurrentRoom('')
-    setPlayerId('')
-    setPlayers([])
-    setIsHost(false)
-    setError('')
-    setGameState('lobby')
-    setQuestion('')
+    setCurrentRoom("");
+    setPlayerId("");
+    setPlayers([]);
+    setPlayerDetails([]);
+    setIsHost(false);
+    setError("");
+    setGameState("lobby");
+    setQuestion("");
+    setHasVoted(false);
+    setIsSubmittingVote(false);
   }
+
+  // -------------------------
+  // USER INTERFACE
+  // -------------------------
 
   return (
     <div className="app">
       {currentRoom ? (
         <>
-          <h1>🎉 {isHost ? 'Room Created!' : 'You Joined!'}</h1>
+          <h1>🎉 {isHost ? "Room Created!" : "You Joined!"}</h1>
 
           <p>Room code:</p>
           <h2>{currentRoom}</h2>
 
-          
-{gameState === 'lobby' ? (
-  <>
-    <h3>👥 Players ({players.length})</h3>
+          {gameState === "lobby" ? (
+            <>
+              <h3>👥 Players ({players.length})</h3>
 
-    {players.map((player, index) => (
-      <p key={index}>🎮 {player}</p>
-    ))}
+              {players.map((player, index) => (
+                <p key={index}>🎮 {player}</p>
+              ))}
 
-    {isHost && (
-      <button
-        onClick={startGame}
-        disabled={players.length < 2}
-      >
-        Start Game 🎮
-      </button>
-    )}
-  </>
-) : (
-  <>
-    <h3>🎮 Who's Most Likely To?</h3>
-    <p>Round 1</p>
-    <h2>{question}</h2>
-    <p>Voting coming soon!</p>
-  </>
-)}
+              {isHost && (
+                <button onClick={startGame} disabled={players.length < 2}>
+                  Start Game 🎮
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <h3>🎮 Who's Most Likely To?</h3>
+              <p>Round 1</p>
+              <h2>{question}</h2>
 
-<button onClick={leaveRoom}>
-  Leave Room
-</button>
+              {hasVoted ? (
+                <p>✅ Vote submitted! Waiting for everyone else...</p>
+              ) : (
+                <>
+                  <p>Who gets your vote? 👀</p>
 
+                  {playerDetails.map((player) => (
+                    <button
+                      key={player.id}
+                      onClick={() => submitVote(player.id)}
+                      disabled={isSubmittingVote}
+                    >
+                      {player.name}
+                    </button>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+
+          <button onClick={leaveRoom}>Leave Room</button>
         </>
       ) : (
         <>
@@ -216,9 +301,7 @@ async function startGame() {
           />
 
           <div>
-            <button onClick={createRoom}>
-              Create Room
-            </button>
+            <button onClick={createRoom}>Create Room</button>
           </div>
 
           <h2>Or join your friends</h2>
@@ -231,15 +314,13 @@ async function startGame() {
             onChange={(e) => setRoomCode(e.target.value)}
           />
 
-          <button onClick={joinRoom}>
-            Join Room
-          </button>
+          <button onClick={joinRoom}>Join Room</button>
         </>
       )}
 
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {error && <p style={{ color: "red" }}>{error}</p>}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
